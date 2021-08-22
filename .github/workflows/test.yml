@@ -1,0 +1,73 @@
+name: test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: test
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        build: [ ubuntu-stable, ubuntu-beta, ubuntu-nightly,
+                 macos-stable, macos-beta, macos-nightly,
+                 windows-stable, windows-beta, windows-nightly ]
+
+        include:
+          - build: ubuntu-stable
+            os: ubuntu-latest
+            rust: stable
+
+          - build: ubuntu-beta
+            os: ubuntu-latest
+            rust: beta
+
+          - build: ubuntu-nightly
+            os: ubuntu-latest
+            rust: nightly
+
+          - build: macos-stable
+            os: macos-latest
+            rust: stable
+
+          - build: macos-beta
+            os: macos-latest
+            rust: beta
+
+          - build: macos-nightly
+            os: macos-latest
+            rust: nightly
+
+          - build: windows-stable
+            os: windows-latest
+            rust: stable
+
+          - build: windows-beta
+            os: windows-latest
+            rust: beta
+
+          - build: windows-nightly
+            os: windows-latest
+            rust: nightly
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setting up rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Checking if it builds without errors (default feature)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path Cargo.toml

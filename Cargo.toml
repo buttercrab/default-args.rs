@@ -1,0 +1,11 @@
+[package]
+name = "default-args"
+version = "1.0.0"
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = "1.0"
