@@ -1,7 +1,9 @@
-//! Enables default arguments in rust by macro.
+//! Enables default arguments in rust by macro in zero cost.
 //!
 //! Just wrap function with `default_args!` and macro with name of function
-//! would be automatically generated to be used with default argument
+//! would be automatically generated to be used with default argument.
+//!
+//! See below for usage
 //!
 //! ```
 //! # extern crate default_args;
@@ -11,16 +13,46 @@
 //! // and original function named `foo_`
 //! default_args! {
 //!     fn foo(important_arg: u32, optional: u32 = 100) -> String {
-//!         // ...
-//! #        format!("{}-{}", important_arg, optional)
+//!         format!("{}, {}", important_arg, optional)
 //!     }
 //! }
 //!
 //! // in other codes...
-//! assert_eq!(foo!(1), "1-100"); // foo(1, 100)
-//! assert_eq!(foo!(1, 3), "1-3"); // foo(1, 3)
-//! assert_eq!(foo!(1, optional=5), "1-5"); // foo(1, 5)
-//! assert_eq!(foo!(1, optional = 10), "1-10"); // foo(1, 10)
+//! assert_eq!(foo!(1), "1, 100"); // foo(1, 100)
+//! assert_eq!(foo!(1, 3), "1, 3"); // foo(1, 3)
+//! assert_eq!(foo!(1, optional=5), "1, 5"); // foo(1, 5)
+//! assert_eq!(foo!(1, optional = 10), "1, 10"); // foo(1, 10)
+//! ```
+//!
+//! # More Features
+//!
+//! ## Export
+//!
+//! Add export in the front of the function and the macro would be exported.
+//! *(add pub to export function with macro)*
+//!
+//! ```
+//! default_args! {
+//!     export pub fn foo() {}
+//! }
+//! ```
+//!
+//! ## Path of function
+//!
+//! Macro just call the function in name, so you should import both macro and the function to use it.
+//! By writing the path of this function, you can just only import the macro.
+//! *(path should start with `crate`)*
+//!
+//! ```
+//! mod foo {
+//!     default_args! {
+//!         fn crate::foo::bar() {}
+//!     }
+//! }
+//!
+//! // then it would create `bar!()`
+//! use foo::bar;
+//! bar!();
 //! ```
 
 use proc_macro::TokenStream;
@@ -35,6 +67,9 @@ use syn::{
     ReturnType, Token, Visibility,
 };
 
+/// Structure for arguments
+///
+/// This contains arguments of function and default values like: `a: u32, b: u32 = 0`
 struct Args {
     parsed: Punctuated<PatType, Token![,]>,
     required: usize,
@@ -42,6 +77,12 @@ struct Args {
 }
 
 impl Parse for Args {
+    /// Parse function for `Args`
+    ///
+    /// ## Errors
+    ///
+    /// - when self is the argument of the function: `self in default_args! is not support in this version`
+    /// - when required argument came after any optional argument: `required argument cannot come after optional argument`
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut args = Punctuated::new();
         let mut has_optional = false;
@@ -91,17 +132,25 @@ impl Parse for Args {
 }
 
 impl ToTokens for Args {
+    /// This function changes to normal signature of function which is `self.parsed`
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         self.parsed.to_tokens(tokens)
     }
 }
 
+/// Module for export keyword
+///
+/// export keyword would make macro export (by adding `#[macro_export]`
 mod export {
     use syn::custom_keyword;
 
     custom_keyword!(export);
 }
 
+/// Structure for Default Argument function
+///
+/// This contains the signature of function like
+/// `#[hello] export pub const async unsafe extern "C" fn crate::foo::bar<T>(a: T, b: u32 = 0) -> String where T: Display { format!("{}, {}", a, b) }`
 struct DefaultArgs {
     attrs: Vec<Attribute>,
     export: Option<export::export>,
@@ -120,6 +169,11 @@ struct DefaultArgs {
 }
 
 impl Parse for DefaultArgs {
+    /// Parse function for `DefaultArgs`
+    ///
+    /// ## Errors
+    ///
+    /// - when path don't start with `crate`: `path should start with crate`
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
         let export = input.parse()?;
@@ -175,6 +229,8 @@ impl Parse for DefaultArgs {
 }
 
 impl ToTokens for DefaultArgs {
+    /// This function changes to normal signature of function
+    /// It would not print `export` and change the name with under bar attached
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         for i in &self.attrs {
             i.to_tokens(tokens);
@@ -348,6 +404,9 @@ fn generate_macro(input: &DefaultArgs) -> proc_macro2::TokenStream {
     }
 }
 
+/// The main macro of this crate
+///
+/// This would generate the original function and the macro
 #[proc_macro]
 pub fn default_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DefaultArgs);
@@ -360,6 +419,8 @@ pub fn default_args(input: TokenStream) -> TokenStream {
     output.into()
 }
 
+/// This is a test for compile failure
+/// This will check the error cases
 #[allow(dead_code)]
 mod compile_fail_test {
     /// using `self` in argument is compile error for now
