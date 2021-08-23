@@ -1,6 +1,6 @@
 # rust files
-/target/
-Cargo.lock
+**/target/
+**/Cargo.lock
 
 # ide files
 .idea/

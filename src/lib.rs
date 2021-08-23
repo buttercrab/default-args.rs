@@ -266,9 +266,9 @@ impl ToTokens for DefaultArgs {
         self.abi.to_tokens(tokens);
         self.fn_token.to_tokens(tokens);
         format_ident!("{}_", &self.fn_name).to_tokens(tokens);
-        self.generics.gt_token.to_tokens(tokens);
-        self.generics.params.to_tokens(tokens);
         self.generics.lt_token.to_tokens(tokens);
+        self.generics.params.to_tokens(tokens);
+        self.generics.gt_token.to_tokens(tokens);
         self.paren_token.surround(tokens, |tokens| {
             self.args.to_tokens(tokens);
         });
@@ -311,10 +311,11 @@ fn named_args_def(
 ) -> proc_macro2::TokenStream {
     macro_index
         .iter()
-        .map(|i| {
+        .enumerate()
+        .map(|(j, i)| {
             let item = format_ident!("n{}", i);
             let pat = &input.args.optional[*i].0.pat;
-            if !front_comma && *i == 0 {
+            if !front_comma && j == 0 {
                 quote! { #pat = $#item:expr }
             } else {
                 quote! { , #pat = $#item:expr }

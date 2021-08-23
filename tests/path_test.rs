@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod export {
+mod path {
     use default_args::default_args;
 
     #[macro_use]
@@ -7,14 +7,14 @@ mod export {
         use super::*;
 
         default_args! {
-            pub fn crate::export::foo::bar() -> usize {
+            pub fn crate::path::foo::bar() -> usize {
                 1
             }
         }
     }
 
     #[test]
-    fn export_test() {
+    fn path_test() {
         assert_eq!(bar!(), 1);
     }
 }

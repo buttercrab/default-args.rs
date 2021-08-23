@@ -1,4 +1,4 @@
-# Default Args
+# Default Arguments in Rust
 
 [![Github Actions](https://img.shields.io/github/workflow/status/buttercrab/default-args.rs/build?style=flat-square)](https://github.com/buttercrab/default-args.rs/actions/workflows/build.yml)
 [![Github Releases](https://img.shields.io/github/v/release/buttercrab/default-args.rs?include_prereleases&style=flat-square)](https://github.com/buttercrab/default-args.rs/releases)
