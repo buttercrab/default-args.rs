@@ -1,7 +1,6 @@
 # Default Args
 
 [![Github Actions](https://img.shields.io/github/workflow/status/buttercrab/default-args.rs/build?style=flat-square)](https://github.com/buttercrab/default-args.rs/actions/workflows/build.yml)
-[![CodeCov Badge](https://img.shields.io/codecov/c/github/buttercrab/default-args.rs?style=flat-square)](https://app.codecov.io/gh/buttercrab/default-args.rs)
 
 Enables default arguments in rust by macro in zero cost. Just wrap function with `default_args!` and macro with name of
 function would be automatically generated to be used with default argument. See below for usage
