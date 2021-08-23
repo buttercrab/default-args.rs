@@ -10,6 +10,6 @@ mod basic_test {
             }
         }
 
-        assert_eq!(foo_(), 1);
+        assert_eq!(foo!(), 1);
     }
 }

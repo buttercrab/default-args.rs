@@ -3,14 +3,13 @@
 //! Just wrap function with `default_args!` and macro with name of function
 //! would be automatically generated to be used with default argument
 //!
-//! ```no_run
+//! ```
 //! # extern crate default_args;
 //! use default_args::default_args;
 //!
 //! // this would make a macro named `foo`
 //! // and original function named `foo_`
 //! default_args! {
-//!     #[some_attribute]
 //!     fn foo(important_arg: u32, optional: u32 = 100) -> String {
 //!         // ...
 //! #        format!("{}-{}", important_arg, optional)
@@ -18,16 +17,16 @@
 //! }
 //!
 //! // in other codes...
-//! foo!(1); // foo(1, 100)
-//! foo!(1, 3); // foo(1, 3)
-//! foo!(1, optional=5); // foo(1, 5)
-//! foo!(1, optional = 10); // foo(1, 10)
+//! assert_eq!(foo!(1), "1-100"); // foo(1, 100)
+//! assert_eq!(foo!(1, 3), "1-3"); // foo(1, 3)
+//! assert_eq!(foo!(1, optional=5), "1-5"); // foo(1, 5)
+//! assert_eq!(foo!(1, optional = 10), "1-10"); // foo(1, 10)
 //! ```
 
 use proc_macro::TokenStream;
-use proc_macro2::Punct;
-use proc_macro2::{Ident, Spacing, Span};
+use proc_macro2::Ident;
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
+use std::iter::FromIterator;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -200,10 +199,164 @@ impl ToTokens for DefaultArgs {
     }
 }
 
+fn require_args_def(count: usize) -> proc_macro2::TokenStream {
+    proc_macro2::TokenStream::from_iter((0..count).map(|i| {
+        let item = format_ident!("r{}", i);
+        if i == 0 {
+            quote! { $#item:expr }
+        } else {
+            quote! { , $#item:expr }
+        }
+    }))
+}
+
+fn require_args(count: usize) -> proc_macro2::TokenStream {
+    proc_macro2::TokenStream::from_iter((0..count).map(|i| {
+        let item = format_ident!("r{}", i);
+        if i == 0 {
+            quote! { $#item }
+        } else {
+            quote! { , $#item }
+        }
+    }))
+}
+
+fn generate_named_one(
+    input: &DefaultArgs,
+    check: &mut Vec<Option<usize>>,
+    names: &mut Vec<(PatType, Expr)>,
+) -> proc_macro2::TokenStream {
+    let req_def = require_args_def(input.args.required);
+    let req = require_args(input.args.required);
+    let fn_name = format_ident!("{}_", input.fn_path.last().unwrap());
+
+    let opt_def =
+        proc_macro2::TokenStream::from_iter(names.iter().enumerate().map(|(i, (pat, _))| {
+            let item = format_ident!("o{}", i);
+            let pat = pat.pat.as_ref();
+            if input.args.required == 0 && i == 0 {
+                quote! { #pat = $#item:expr }
+            } else {
+                quote! { , #pat = $#item:expr }
+            }
+        }));
+
+    let opt = proc_macro2::TokenStream::from_iter(check.iter().enumerate().map(|(i, j)| {
+        let inner = if let Some(j) = *j {
+            let item = format_ident!("o{}", j);
+            quote! { $#item }
+        } else {
+            let (_, ref item) = input.args.optional[i];
+            quote! { ( #item ) }
+        };
+
+        if input.args.required == 0 && i == 0 {
+            quote! { #inner }
+        } else {
+            quote! { , #inner }
+        }
+    }));
+
+    quote! {
+        (#req_def#opt_def) => {
+            #fn_name(#req#opt)
+        };
+    }
+}
+
+fn generate_named_inner(
+    input: &DefaultArgs,
+    check: &mut Vec<Option<usize>>,
+    names: &mut Vec<(PatType, Expr)>,
+) -> proc_macro2::TokenStream {
+    let mut ret = generate_named_one(input, check, names);
+    ret.append_all(
+        check
+            .clone()
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.is_none())
+            .map(|(i, _)| {
+                check[i] = Some(names.len());
+                names.push(input.args.optional[i].clone());
+                let r = generate_named_inner(input, check, names);
+                names.pop();
+                check[i] = None;
+                r
+            }),
+    );
+    ret
+}
+
+fn generate_unnamed_inner(input: &DefaultArgs) -> proc_macro2::TokenStream {
+    proc_macro2::TokenStream::from_iter((1..=input.args.optional.len()).map(|i| {
+        let req_def = require_args_def(input.args.required);
+        let req = require_args(input.args.required);
+        let fn_name = format_ident!("{}_", input.fn_path.last().unwrap());
+
+        let opt_def = proc_macro2::TokenStream::from_iter((0..i).map(|j| {
+            let item = format_ident!("o{}", j);
+            if input.args.required == 0 && j == 0 {
+                quote! { $#item:expr }
+            } else {
+                quote! { , $#item:expr }
+            }
+        }));
+
+        let opt = proc_macro2::TokenStream::from_iter((0..input.args.optional.len()).map(|j| {
+            let inner = if j < i {
+                let item = format_ident!("o{}", j);
+                quote! { $#item }
+            } else {
+                let (_, ref item) = input.args.optional[j];
+                quote! { ( #item ) }
+            };
+
+            if input.args.required == 0 && j == 0 {
+                quote! { #inner }
+            } else {
+                quote! { , #inner }
+            }
+        }));
+
+        quote! {
+            (#req_def#opt_def) => {
+                #fn_name(#req#opt)
+            };
+        }
+    }))
+}
+
+fn generate_macro(input: &DefaultArgs) -> proc_macro2::TokenStream {
+    let mut check = vec![None; input.args.optional.len()];
+    let mut names = Vec::new();
+    let named_inner = generate_named_inner(input, &mut check, &mut names);
+    let unnamed_inner = generate_unnamed_inner(input);
+    let name = input.fn_path.last().unwrap();
+    let export = if input.export.is_some() {
+        quote! { #[macro_export] }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #export
+        macro_rules! #name {
+            #named_inner
+            #unnamed_inner
+        }
+    }
+}
+
 #[proc_macro]
 pub fn default_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DefaultArgs);
-    let output = quote! { #input };
+    let generated_macro = generate_macro(&input);
+    let output = quote! {
+        #input
+
+        #generated_macro
+    };
     output.into()
 }
 
