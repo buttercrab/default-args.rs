@@ -46,6 +46,8 @@ assert_eq!(unsafe { bar!("a", "d", c = "e") }.await, "a, d, e");
 assert_eq!(unsafe { bar!("a", c = "e") }.await, "a, b, e");
 ```
 
+See [examples](https://github.com/buttercrab/default-args.rs/tree/master/examples) for more information.
+
 ## More Features
 
 ### Export
