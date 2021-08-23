@@ -31,41 +31,68 @@ use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    parenthesized, parse_macro_input, token, Abi, Attribute, Block, Expr, FnArg, Generics, PatType,
-    ReturnType, Token, Visibility,
+    parenthesized, parse_macro_input, token, Abi, Attribute, Block, Expr, FnArg, Generics, Pat,
+    PatType, ReturnType, Token, Visibility,
 };
 
-struct Arg {
-    pat: PatType,
-    default: Option<(Token![=], Expr)>,
+struct Args {
+    parsed: Punctuated<PatType, Token![,]>,
+    required: usize,
+    optional: Vec<(PatType, Expr)>,
 }
 
-impl Parse for Arg {
+impl Parse for Args {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Arg {
-            pat: match input.parse::<FnArg>()? {
+        let mut args = Punctuated::new();
+        let mut has_optional = false;
+        let mut required = 0;
+        let mut optional = Vec::new();
+
+        while !input.is_empty() {
+            let fn_arg = input.parse::<FnArg>()?;
+
+            let pat = match fn_arg {
                 FnArg::Receiver(r) => {
                     return Err(syn::Error::new(
                         r.span(),
-                        "self in default_args! is not supported in this version",
+                        "self in default_args! is not support in this version",
                     ));
                 }
                 FnArg::Typed(pat) => pat,
-            },
-            default: {
-                let equal  = input.parse()?;
-                match equal {
-                    Some(equal) => Some((equal, input.parse()?)),
-                    None => None,
-                }
-            },
+            };
+
+            if input.parse::<Option<Token![=]>>()?.is_some() {
+                has_optional = true;
+                optional.push((pat.clone(), input.parse()?));
+            } else if has_optional {
+                return Err(syn::Error::new(
+                    pat.span(),
+                    "required argument cannot come after optional argument",
+                ));
+            } else {
+                required += 1;
+            }
+
+            args.push_value(pat);
+
+            if input.is_empty() {
+                break;
+            }
+
+            args.push_punct(input.parse()?);
+        }
+
+        Ok(Args {
+            parsed: args,
+            required,
+            optional,
         })
     }
 }
 
-impl ToTokens for Arg {
+impl ToTokens for Args {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        todo!()
+        self.parsed.to_tokens(tokens)
     }
 }
 
@@ -80,7 +107,7 @@ struct DefaultArgs {
     fn_name: Ident,
     generics: Generics,
     paren_token: token::Paren,
-    args: Punctuated<Arg, Token![,]>,
+    args: Args,
     ret: ReturnType,
     body: Block,
 }
@@ -96,11 +123,10 @@ impl Parse for DefaultArgs {
         let fn_token = input.parse()?;
         let fn_name = input.parse()?;
 
-
         let mut generics: Generics = input.parse()?;
         let content;
         let paren_token = parenthesized!(content in input);
-        let args = content.parse_terminated(Arg::parse)?;
+        let args = content.parse()?;
         let ret = input.parse()?;
         generics.where_clause = input.parse()?;
         let body = input.parse()?;
@@ -132,13 +158,13 @@ impl ToTokens for DefaultArgs {
 #[proc_macro]
 pub fn default_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DefaultArgs);
-    let output = quote! { };
+    let output = quote! {};
     output.into()
 }
 
-#[doc(hidden)]
+#[allow(dead_code)]
 mod compile_fail_test {
-    /// using `self` in param is compile error for now
+    /// using `self` in argument is compile error for now
     ///
     /// error: `self in default_args! is not supported in this version`
     ///
@@ -150,13 +176,29 @@ mod compile_fail_test {
     ///
     /// impl A {
     ///     default_args! {
-    ///         fn hello(&self, a: usize, b: usize = 0) -> usize {
+    ///         fn foo(&self, a: usize, b: usize = 0) -> usize {
     ///             a + b
     ///         }
     ///     }
     /// }
     /// ```
-    fn self_compile_error() {}
+    fn using_self() {}
+
+    /// having required argument after optional argument is an error
+    ///
+    /// error: `required argument cannot come after optional argument`
+    ///
+    /// ```compile_fail
+    /// # extern crate default_args;
+    /// use default_args::default_args;
+    ///
+    /// default_args! {
+    ///     fn foo(a: usize = 0, b: usize) -> usize {
+    ///         a + b
+    ///     }
+    /// }
+    /// ```
+    fn required_after_optional() {}
 }
 
 #[cfg(test)]
@@ -164,5 +206,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn basic_test() {}
+    fn basic_test() {
+        todo!()
+    }
 }
