@@ -65,6 +65,7 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           override: true
+          components: clippy
 
       - name: Checking if it builds without errors (default feature)
         uses: actions-rs/cargo@v1
