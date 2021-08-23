@@ -1,6 +1,9 @@
 # Default Args
 
 [![Github Actions](https://img.shields.io/github/workflow/status/buttercrab/default-args.rs/build?style=flat-square)](https://github.com/buttercrab/default-args.rs/actions/workflows/build.yml)
+[![Github Releases](https://img.shields.io/github/v/release/buttercrab/default-args.rs?include_prereleases&style=flat-square)](https://github.com/buttercrab/default-args.rs/releases)
+[![crate.io](https://img.shields.io/crates/v/default-args?style=flat-square)](https://crates.io/crates/default-args)
+[![MIT License](https://img.shields.io/github/license/buttercrab/default-args.rs?style=flat-square)](https://github.com/buttercrab/default-args.rs/blob/master/LICENSE)
 
 Enables default arguments in rust by macro in zero cost. Just wrap function with `default_args!` and macro with name of
 function would be automatically generated to be used with default argument. See below for usage
