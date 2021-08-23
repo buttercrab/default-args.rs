@@ -25,14 +25,15 @@
 //! ```
 
 use proc_macro::TokenStream;
-use proc_macro2::Ident;
-use quote::{quote, ToTokens};
+use proc_macro2::Punct;
+use proc_macro2::{Ident, Spacing, Span};
+use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    parenthesized, parse_macro_input, token, Abi, Attribute, Block, Expr, FnArg, Generics, Pat,
-    PatType, ReturnType, Token, Visibility,
+    parenthesized, parse_macro_input, token, Abi, Attribute, Block, Expr, FnArg, Generics, PatType,
+    ReturnType, Token, Visibility,
 };
 
 struct Args {
@@ -96,15 +97,22 @@ impl ToTokens for Args {
     }
 }
 
+mod export {
+    use syn::custom_keyword;
+
+    custom_keyword!(export);
+}
+
 struct DefaultArgs {
     attrs: Vec<Attribute>,
+    export: Option<export::export>,
     vis: Visibility,
     constness: Option<Token![const]>,
     asyncness: Option<Token![async]>,
     unsafety: Option<Token![unsafe]>,
     abi: Option<Abi>,
     fn_token: Token![fn],
-    fn_name: Ident,
+    fn_path: Punctuated<Ident, Token![::]>,
     generics: Generics,
     paren_token: token::Paren,
     args: Args,
@@ -115,13 +123,30 @@ struct DefaultArgs {
 impl Parse for DefaultArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
+        let export = input.parse()?;
         let vis = input.parse()?;
         let constness = input.parse()?;
         let asyncness = input.parse()?;
         let unsafety = input.parse()?;
         let abi = input.parse()?;
         let fn_token = input.parse()?;
-        let fn_name = input.parse()?;
+
+        let mut fn_path: Punctuated<Ident, Token![::]> = Punctuated::new();
+        loop {
+            fn_path.push_value(input.parse()?);
+            if input.peek(Token![::]) {
+                fn_path.push_punct(input.parse()?);
+            } else {
+                break;
+            }
+        }
+
+        if fn_path.len() > 1 && fn_path.first().unwrap() != "crate" {
+            return Err(syn::Error::new(
+                fn_path.first().unwrap().span(),
+                "path should start with crate",
+            ));
+        }
 
         let mut generics: Generics = input.parse()?;
         let content;
@@ -133,13 +158,14 @@ impl Parse for DefaultArgs {
 
         Ok(DefaultArgs {
             attrs,
+            export,
             vis,
             constness,
             asyncness,
             unsafety,
             abi,
             fn_token,
-            fn_name,
+            fn_path,
             generics,
             paren_token,
             args,
@@ -151,14 +177,33 @@ impl Parse for DefaultArgs {
 
 impl ToTokens for DefaultArgs {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        todo!()
+        for i in &self.attrs {
+            i.to_tokens(tokens);
+        }
+        self.vis.to_tokens(tokens);
+        self.constness.to_tokens(tokens);
+        self.asyncness.to_tokens(tokens);
+        self.unsafety.to_tokens(tokens);
+        self.abi.to_tokens(tokens);
+        self.fn_token.to_tokens(tokens);
+        let name = self.fn_path.last().unwrap();
+        format_ident!("{}_", name).to_tokens(tokens);
+        self.generics.gt_token.to_tokens(tokens);
+        self.generics.params.to_tokens(tokens);
+        self.generics.lt_token.to_tokens(tokens);
+        self.paren_token.surround(tokens, |tokens| {
+            self.args.to_tokens(tokens);
+        });
+        self.ret.to_tokens(tokens);
+        self.generics.where_clause.to_tokens(tokens);
+        self.body.to_tokens(tokens);
     }
 }
 
 #[proc_macro]
 pub fn default_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DefaultArgs);
-    let output = quote! {};
+    let output = quote! { #input };
     output.into()
 }
 
@@ -199,14 +244,20 @@ mod compile_fail_test {
     /// }
     /// ```
     fn required_after_optional() {}
-}
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn basic_test() {
-        todo!()
-    }
+    /// if path is used in function name, it should start with crate
+    ///
+    /// error: `path should start with crate`
+    ///
+    /// ```compile_fail
+    /// # extern crate default_args;
+    /// mod foo {
+    ///     use default_args::default_args;
+    ///
+    ///     default_args! {
+    ///         fn foo::bar() {}
+    ///     }
+    /// }
+    /// ```
+    fn path_not_starting_with_crate() {}
 }
