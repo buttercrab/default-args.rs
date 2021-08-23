@@ -4,7 +4,6 @@ version = "1.0.0"
 edition = "2018"
 authors = ["Jaeyong Sung <jaeyong0201@gmail.com>"]
 license = "MIT"
-license-file = "LICENSE"
 readme = "README.md"
 include = [
     "src/**/*",

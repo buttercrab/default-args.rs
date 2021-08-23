@@ -70,7 +70,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
-use std::iter::FromIterator;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -283,20 +282,22 @@ impl ToTokens for DefaultArgs {
 /// - `count`: how many arguments
 /// - `def`: if it would be used in macro definition (will add `expr`)
 fn unnamed_args(count: usize, def: bool) -> proc_macro2::TokenStream {
-    proc_macro2::TokenStream::from_iter((0..count).map(|i| {
-        let item = format_ident!("u{}", i);
-        if def {
-            if i == 0 {
-                quote! { $#item:expr }
+    (0..count)
+        .map(|i| {
+            let item = format_ident!("u{}", i);
+            if def {
+                if i == 0 {
+                    quote! { $#item:expr }
+                } else {
+                    quote! { , $#item:expr }
+                }
+            } else if i == 0 {
+                quote! { $#item }
             } else {
-                quote! { , $#item:expr }
+                quote! { , $#item }
             }
-        } else if i == 0 {
-            quote! { $#item }
-        } else {
-            quote! { , $#item }
-        }
-    }))
+        })
+        .collect()
 }
 
 /// Make named arguments in definition of macro
@@ -308,15 +309,18 @@ fn named_args_def(
     input: &DefaultArgs,
     macro_index: &[usize],
 ) -> proc_macro2::TokenStream {
-    proc_macro2::TokenStream::from_iter(macro_index.iter().map(|i| {
-        let item = format_ident!("n{}", i);
-        let pat = &input.args.optional[*i].0.pat;
-        if !front_comma && *i == 0 {
-            quote! { #pat = $#item:expr }
-        } else {
-            quote! { , #pat = $#item:expr }
-        }
-    }))
+    macro_index
+        .iter()
+        .map(|i| {
+            let item = format_ident!("n{}", i);
+            let pat = &input.args.optional[*i].0.pat;
+            if !front_comma && *i == 0 {
+                quote! { #pat = $#item:expr }
+            } else {
+                quote! { , #pat = $#item:expr }
+            }
+        })
+        .collect()
 }
 
 /// Make names arguments in macro
@@ -330,21 +334,25 @@ fn named_args(
     offset: usize,
     func_index: &[bool],
 ) -> proc_macro2::TokenStream {
-    proc_macro2::TokenStream::from_iter(func_index.iter().enumerate().map(|(i, provided)| {
-        let inner = if *provided {
-            let item = format_ident!("n{}", i + offset);
-            quote! { $#item }
-        } else {
-            let item = &input.args.optional[i + offset].1;
-            quote! { ( #item ) }
-        };
+    func_index
+        .iter()
+        .enumerate()
+        .map(|(i, provided)| {
+            let inner = if *provided {
+                let item = format_ident!("n{}", i + offset);
+                quote! { $#item }
+            } else {
+                let item = &input.args.optional[i + offset].1;
+                quote! { ( #item ) }
+            };
 
-        if !front_comma && i == 0 {
-            quote! { #inner }
-        } else {
-            quote! { , #inner }
-        }
-    }))
+            if !front_comma && i == 0 {
+                quote! { #inner }
+            } else {
+                quote! { , #inner }
+            }
+        })
+        .collect()
 }
 
 /// Generate one arm of macro
