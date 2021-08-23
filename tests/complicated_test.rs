@@ -15,5 +15,6 @@ mod complicated {
         assert_eq!(foo!(1, 2, 3), 17);
         assert_eq!(foo!(1, 2, 3, 4), 10);
         assert_eq!(foo!(1, 2, d = 3, c = 4), 10);
+        assert_eq!(foo!(1, 2, 3, d = 4), 10);
     }
 }

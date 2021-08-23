@@ -44,16 +44,22 @@ this function, you can just only import the macro.
 *(path should start with `crate`)*
 
 ```rust
-mod foo {
+#[macro_use]
+pub mod foo {
     default_args! {
-        fn crate::foo::bar() {}
+        pub fn crate::foo::bar() {}
     }
 }
 
 // then it would create `bar!()`
-use foo::bar;
 bar!();
 ```
+
+#### *Why do we have to write module?*
+
+> `std::module_path!` can resolve the module path of the function where it is declared. 
+> However, it can be resolved in runtime, not compile-time. 
+> I couldn't find a way to get module path in compile-time.
 
 ## License
 

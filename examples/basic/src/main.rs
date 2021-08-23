@@ -7,4 +7,5 @@ default_args! {
 }
 
 fn main() {
+    println!("{}", foo!());
 }

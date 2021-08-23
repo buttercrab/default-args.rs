@@ -32,6 +32,9 @@
 //! *(add pub to export function with macro)*
 //!
 //! ```
+//! # extern crate default_args;
+//! # use default_args::default_args;
+//! #
 //! default_args! {
 //!     export pub fn foo() {}
 //! }
@@ -43,17 +46,26 @@
 //! By writing the path of this function, you can just only import the macro.
 //! *(path should start with `crate`)*
 //!
-//! ```
-//! mod foo {
+//! ```ignore
+//! # extern crate default_args;
+//! #
+//! #[macro_use]
+//! pub mod foo {
+//!     # use default_args::default_args;
 //!     default_args! {
-//!         fn crate::foo::bar() {}
+//!         pub fn crate::foo::bar() {}
 //!     }
 //! }
 //!
 //! // then it would create `bar!()`
-//! use foo::bar;
 //! bar!();
 //! ```
+//!
+//! ## *Why do we have to write module?*
+//!
+//! > `std::module_path!` can resolve the module path of the function where it is declared.
+//! > However, it can be resolved in runtime, not compile-time.
+//! > I couldn't find a way to get module path in compile-time.
 
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
@@ -160,7 +172,9 @@ struct DefaultArgs {
     unsafety: Option<Token![unsafe]>,
     abi: Option<Abi>,
     fn_token: Token![fn],
+    crate_path: Option<(Token![crate], Token![::])>,
     fn_path: Punctuated<Ident, Token![::]>,
+    fn_name: Ident,
     generics: Generics,
     paren_token: token::Paren,
     args: Args,
@@ -185,6 +199,14 @@ impl Parse for DefaultArgs {
         let fn_token = input.parse()?;
 
         let mut fn_path: Punctuated<Ident, Token![::]> = Punctuated::new();
+        let crate_token = input.parse::<Option<Token![crate]>>()?;
+        let crate_path = if let Some(token) = crate_token {
+            let crate_colon_token = input.parse::<Token![::]>()?;
+            Some((token, crate_colon_token))
+        } else {
+            None
+        };
+
         loop {
             fn_path.push_value(input.parse()?);
             if input.peek(Token![::]) {
@@ -194,12 +216,13 @@ impl Parse for DefaultArgs {
             }
         }
 
-        if fn_path.len() > 1 && fn_path.first().unwrap() != "crate" {
+        if crate_path.is_none() && fn_path.len() > 1 {
             return Err(syn::Error::new(
                 fn_path.first().unwrap().span(),
                 "path should start with crate",
             ));
         }
+        let fn_name = fn_path.pop().unwrap().into_value();
 
         let mut generics: Generics = input.parse()?;
         let content;
@@ -218,7 +241,9 @@ impl Parse for DefaultArgs {
             unsafety,
             abi,
             fn_token,
+            crate_path,
             fn_path,
+            fn_name,
             generics,
             paren_token,
             args,
@@ -241,8 +266,7 @@ impl ToTokens for DefaultArgs {
         self.unsafety.to_tokens(tokens);
         self.abi.to_tokens(tokens);
         self.fn_token.to_tokens(tokens);
-        let name = self.fn_path.last().unwrap();
-        format_ident!("{}_", name).to_tokens(tokens);
+        format_ident!("{}_", &self.fn_name).to_tokens(tokens);
         self.generics.gt_token.to_tokens(tokens);
         self.generics.params.to_tokens(tokens);
         self.generics.lt_token.to_tokens(tokens);
@@ -255,21 +279,19 @@ impl ToTokens for DefaultArgs {
     }
 }
 
-fn require_args_def(count: usize) -> proc_macro2::TokenStream {
+/// Make unnamed arguments in macro
+/// - `count`: how many arguments
+/// - `def`: if it would be used in macro definition (will add `expr`)
+fn unnamed_args(count: usize, def: bool) -> proc_macro2::TokenStream {
     proc_macro2::TokenStream::from_iter((0..count).map(|i| {
-        let item = format_ident!("r{}", i);
-        if i == 0 {
-            quote! { $#item:expr }
-        } else {
-            quote! { , $#item:expr }
-        }
-    }))
-}
-
-fn require_args(count: usize) -> proc_macro2::TokenStream {
-    proc_macro2::TokenStream::from_iter((0..count).map(|i| {
-        let item = format_ident!("r{}", i);
-        if i == 0 {
+        let item = format_ident!("u{}", i);
+        if def {
+            if i == 0 {
+                quote! { $#item:expr }
+            } else {
+                quote! { , $#item:expr }
+            }
+        } else if i == 0 {
             quote! { $#item }
         } else {
             quote! { , $#item }
@@ -277,131 +299,146 @@ fn require_args(count: usize) -> proc_macro2::TokenStream {
     }))
 }
 
-fn generate_named_one(
+/// Make named arguments in definition of macro
+/// - `front_comma`: if it needs a front comma
+/// - `input`: default args
+/// - `macro_index`: mapped index of argument in function from macro
+fn named_args_def(
+    front_comma: bool,
     input: &DefaultArgs,
-    check: &mut Vec<Option<usize>>,
-    names: &mut Vec<(PatType, Expr)>,
+    macro_index: &[usize],
 ) -> proc_macro2::TokenStream {
-    let req_def = require_args_def(input.args.required);
-    let req = require_args(input.args.required);
-    let fn_name = format_ident!("{}_", input.fn_path.last().unwrap());
-
-    let opt_def =
-        proc_macro2::TokenStream::from_iter(names.iter().enumerate().map(|(i, (pat, _))| {
-            let item = format_ident!("o{}", i);
-            let pat = pat.pat.as_ref();
-            if input.args.required == 0 && i == 0 {
-                quote! { #pat = $#item:expr }
-            } else {
-                quote! { , #pat = $#item:expr }
-            }
-        }));
-
-    let opt = proc_macro2::TokenStream::from_iter(check.iter().enumerate().map(|(i, j)| {
-        let inner = if let Some(j) = *j {
-            let item = format_ident!("o{}", j);
-            quote! { $#item }
+    proc_macro2::TokenStream::from_iter(macro_index.iter().map(|i| {
+        let item = format_ident!("n{}", i);
+        let pat = &input.args.optional[*i].0.pat;
+        if !front_comma && *i == 0 {
+            quote! { #pat = $#item:expr }
         } else {
-            let (_, ref item) = input.args.optional[i];
-            quote! { ( #item ) }
-        };
-
-        if input.args.required == 0 && i == 0 {
-            quote! { #inner }
-        } else {
-            quote! { , #inner }
-        }
-    }));
-
-    quote! {
-        (#req_def#opt_def) => {
-            #fn_name(#req#opt)
-        };
-    }
-}
-
-fn generate_named_inner(
-    input: &DefaultArgs,
-    check: &mut Vec<Option<usize>>,
-    names: &mut Vec<(PatType, Expr)>,
-) -> proc_macro2::TokenStream {
-    let mut ret = generate_named_one(input, check, names);
-    ret.append_all(
-        check
-            .clone()
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| b.is_none())
-            .map(|(i, _)| {
-                check[i] = Some(names.len());
-                names.push(input.args.optional[i].clone());
-                let r = generate_named_inner(input, check, names);
-                names.pop();
-                check[i] = None;
-                r
-            }),
-    );
-    ret
-}
-
-fn generate_unnamed_inner(input: &DefaultArgs) -> proc_macro2::TokenStream {
-    proc_macro2::TokenStream::from_iter((1..=input.args.optional.len()).map(|i| {
-        let req_def = require_args_def(input.args.required);
-        let req = require_args(input.args.required);
-        let fn_name = format_ident!("{}_", input.fn_path.last().unwrap());
-
-        let opt_def = proc_macro2::TokenStream::from_iter((0..i).map(|j| {
-            let item = format_ident!("o{}", j);
-            if input.args.required == 0 && j == 0 {
-                quote! { $#item:expr }
-            } else {
-                quote! { , $#item:expr }
-            }
-        }));
-
-        let opt = proc_macro2::TokenStream::from_iter((0..input.args.optional.len()).map(|j| {
-            let inner = if j < i {
-                let item = format_ident!("o{}", j);
-                quote! { $#item }
-            } else {
-                let (_, ref item) = input.args.optional[j];
-                quote! { ( #item ) }
-            };
-
-            if input.args.required == 0 && j == 0 {
-                quote! { #inner }
-            } else {
-                quote! { , #inner }
-            }
-        }));
-
-        quote! {
-            (#req_def#opt_def) => {
-                #fn_name(#req#opt)
-            };
+            quote! { , #pat = $#item:expr }
         }
     }))
 }
 
-fn generate_macro(input: &DefaultArgs) -> proc_macro2::TokenStream {
-    let mut check = vec![None; input.args.optional.len()];
-    let mut names = Vec::new();
-    let named_inner = generate_named_inner(input, &mut check, &mut names);
-    let unnamed_inner = generate_unnamed_inner(input);
-    let name = input.fn_path.last().unwrap();
-    let export = if input.export.is_some() {
-        quote! { #[macro_export] }
-    } else {
-        quote! {}
-    };
+/// Make names arguments in macro
+/// - `front_comma`: if it needs a front comma
+/// - `input`: default args
+/// - `offset`: offset of named argument
+/// - `func_index`: whether if the function argument is provided
+fn named_args(
+    front_comma: bool,
+    input: &DefaultArgs,
+    offset: usize,
+    func_index: &[bool],
+) -> proc_macro2::TokenStream {
+    proc_macro2::TokenStream::from_iter(func_index.iter().enumerate().map(|(i, provided)| {
+        let inner = if *provided {
+            let item = format_ident!("n{}", i + offset);
+            quote! { $#item }
+        } else {
+            let item = &input.args.optional[i + offset].1;
+            quote! { ( #item ) }
+        };
 
-    quote! {
-        #export
-        macro_rules! #name {
-            #named_inner
-            #unnamed_inner
+        if !front_comma && i == 0 {
+            quote! { #inner }
+        } else {
+            quote! { , #inner }
+        }
+    }))
+}
+
+/// Generate one arm of macro
+/// - `input`: default args
+/// - `unnamed_cnt`: unnamed argument count
+/// - `offset`: offset of named argument
+/// - `macro_index`: mapped index of argument in function from macro
+/// - `func_index`: whether if the function argument is provided
+fn generate(
+    input: &DefaultArgs,
+    unnamed_cnt: usize,
+    offset: usize,
+    macro_index: &[usize],
+    func_index: &[bool],
+) -> proc_macro2::TokenStream {
+    let fn_name = format_ident!("{}_", input.fn_name);
+
+    let unnamed_def = unnamed_args(unnamed_cnt, true);
+    let unnamed = unnamed_args(unnamed_cnt, false);
+
+    let named_def = named_args_def(unnamed_cnt != 0, input, macro_index);
+    let named = named_args(unnamed_cnt != 0, input, offset, func_index);
+
+    if input.crate_path.is_some() {
+        let fn_path = &input.fn_path;
+        quote! {
+            (#unnamed_def#named_def) => {
+                $crate::#fn_path#fn_name(#unnamed#named)
+            };
+        }
+    } else {
+        quote! {
+            (#unnamed_def#named_def) => {
+                #fn_name(#unnamed#named)
+            };
         }
     }
+}
+
+/// Generate macro arms recursively
+/// - `input`: default args
+/// - `unnamed_cnt`: unnamed argument count
+/// - `offset`: offset of named argument
+/// - `macro_index`: mapped index of argument in function from macro
+/// - `func_index`: whether if the function argument is provided
+/// - `stream`: token stream to append faster
+fn generate_recursive(
+    input: &DefaultArgs,
+    unnamed_cnt: usize,
+    offset: usize,
+    macro_index: &mut Vec<usize>,
+    func_index: &mut Vec<bool>,
+    stream: &mut proc_macro2::TokenStream,
+) {
+    stream.append_all(generate(
+        input,
+        unnamed_cnt,
+        offset,
+        macro_index,
+        func_index,
+    ));
+
+    for i in 0..func_index.len() {
+        if func_index[i] {
+            continue;
+        }
+
+        func_index[i] = true;
+        macro_index.push(i + offset);
+        generate_recursive(input, unnamed_cnt, offset, macro_index, func_index, stream);
+        macro_index.pop();
+        func_index[i] = false;
+    }
+}
+
+/// Generates all macro arms
+/// - `input`: default args
+fn generate_macro(input: &DefaultArgs) -> proc_macro2::TokenStream {
+    let mut stream = proc_macro2::TokenStream::new();
+
+    for i in 0..=input.args.optional.len() {
+        let mut macro_index = Vec::new();
+        let mut func_index = vec![false; input.args.optional.len() - i];
+        generate_recursive(
+            input,
+            input.args.required + i,
+            i,
+            &mut macro_index,
+            &mut func_index,
+            &mut stream,
+        );
+    }
+
+    stream
 }
 
 /// The main macro of this crate
@@ -410,11 +447,23 @@ fn generate_macro(input: &DefaultArgs) -> proc_macro2::TokenStream {
 #[proc_macro]
 pub fn default_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DefaultArgs);
-    let generated_macro = generate_macro(&input);
+
+    let name = &input.fn_name;
+    let export = if input.export.is_some() {
+        quote! { #[macro_export] }
+    } else {
+        quote! {}
+    };
+
+    let inner = generate_macro(&input);
+
     let output = quote! {
         #input
 
-        #generated_macro
+        #export
+        macro_rules! #name {
+            #inner
+        }
     };
     output.into()
 }
