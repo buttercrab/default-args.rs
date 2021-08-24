@@ -94,7 +94,7 @@ Above macro would expand as below
 pub mod foo {
     pub fn bar_() {}
 
-    macro_rules! bar_ {
+    macro_rules! bar {
         () => {
             $crate::foo::bar_()
         };
