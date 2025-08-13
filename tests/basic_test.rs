@@ -46,7 +46,7 @@ mod basic_test {
         assert_eq!(foo!(), (10, 20, S { c: 30 }));
         assert_eq!(foo!(1), (1, 20, S { c: 30 }));
         assert_eq!(foo!(1, 2), (1, 2, S { c: 30 }));
-        assert_eq!(foo!(1, 2, S {c: 3}), (1, 2, S { c: 3 }));
-        assert_eq!(foo!(c = S {c: 1}), (10, 20, S { c: 1 }));
+        assert_eq!(foo!(1, 2, S { c: 3 }), (1, 2, S { c: 3 }));
+        assert_eq!(foo!(c = S { c: 1 }), (10, 20, S { c: 1 }));
     }
 }

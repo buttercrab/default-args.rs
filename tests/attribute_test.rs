@@ -54,7 +54,12 @@ mod attribute_test {
     #[test]
     fn all_optional() {
         #[default_args_attribute]
-        fn foo(#[default(10)] a: u32, #[default(20)] b: u32, #[default(30)] c: u32, #[default(40)] d: u32) -> u32 {
+        fn foo(
+            #[default(10)] a: u32,
+            #[default(20)] b: u32,
+            #[default(30)] c: u32,
+            #[default(40)] d: u32,
+        ) -> u32 {
             a + b + c + d
         }
 
@@ -138,14 +143,18 @@ mod attribute_test {
         const DEFAULT_C: S = S { c: 30 };
 
         #[default_args_attribute]
-        fn foo(#[default(DEFAULT_A)] a: u32, #[default(default_b())] b: u32, #[default(DEFAULT_C)] c: S) -> (u32, u32, S) {
+        fn foo(
+            #[default(DEFAULT_A)] a: u32,
+            #[default(default_b())] b: u32,
+            #[default(DEFAULT_C)] c: S,
+        ) -> (u32, u32, S) {
             (a, b, c)
         }
 
         assert_eq!(foo!(), (10, 20, S { c: 30 }));
         assert_eq!(foo!(1), (1, 20, S { c: 30 }));
         assert_eq!(foo!(1, 2), (1, 2, S { c: 30 }));
-        assert_eq!(foo!(1, 2, S {c: 3}), (1, 2, S { c: 3 }));
-        assert_eq!(foo!(c = S {c: 1}), (10, 20, S { c: 1 }));
+        assert_eq!(foo!(1, 2, S { c: 3 }), (1, 2, S { c: 3 }));
+        assert_eq!(foo!(c = S { c: 1 }), (10, 20, S { c: 1 }));
     }
 }
